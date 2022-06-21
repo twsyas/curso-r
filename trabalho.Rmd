@@ -1,0 +1,366 @@
+---
+title: "TCC DO CURSO DE R"
+author: "Cristine Ellen, Sarah Pontes e Yasmin Santana"
+date: '2022-06-19'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+## Introdução
+Análise de dados de projeçao do IBGE em 2018 e construção do mapa de distribuição da população por unidade de federação.
+Este relatório utiliza da base de projeção do IBGE em 2018 e do arquivo geoespacial por unidade de federação para fazer gráficos e análises. 
+
+## Pacotes
+De início, todos os pacotes usado nesse relatório estarão aqui - tanto os pacotes utilizados para a análise dos dados quanto os do mapa.
+
+```{r message=FALSE, warning=FALSE}
+install.packages('dplyr')
+install.packages('ggplot2')
+install.packages('janitor')
+install.packages('skimr')
+install.packages('gmodels')
+install.packages('psych')
+install.packages('visdat')
+install.packages('inspectdf')
+install.packages("rgdal")
+install.packages('dplyr')
+install.packages("janitor")
+install.packages("knitr")
+install.packages("tibble")
+install.packages("leaflet")
+install.packages('RColorBrewer')
+library(tibble)
+library(dplyr)
+library(janitor)
+library(skimr)
+library(gmodels)
+library(psych)
+library(visdat)
+library(inspectdf)
+library(rgdal)
+library(leaflet)
+library(RColorBrewer)
+```
+
+Salvando o arquivo csv em um objeto do tipo dataframe
+
+```` {r }
+dt <- utils::read.csv(
+  file = 'https://raw.githubusercontent.com/jonates/opendata/master/projecao_IBGE_2018/projecao_IBGE_2018_atualizada06042020_semponto.csv',
+  sep = ';',
+  dec = ','
+)
+````
+
+Onde se encontra a Bahia no ranking de prevalência de obitos entre as UF?
+ Construção de uma tabela com duas colunas (Nome_UF,Obitos)
+ 
+````{r }
+tab_prevObitos_UF <- dt %>%
+  dplyr::select(Nome_UF, Obitos) %>%
+  dplyr::filter(Nome_UF != 'Todas') %>%
+  dplyr::arrange(desc(Obitos)) %>%
+  tibble::view()
+````
+````{r, echo = FALSE}
+tab_prevObitos_UF
+````
+Salvando o resultado em um arquivo csv
+
+````{undefined message=TRUE, warning=TRUE, paged.print=FALSE}
+write.csv(
+  x = tab_prevObitos_UF,
+  file = './tabela_prevObitos_por_UF_20220106.csv',
+  row.names = FALSE
+)
+````
+ 
+ Espiando a estrutura do conjunto de dados]
+````{r }
+dplyr::glimpse(dt)
+````
+ Overview das variÃ?Â¡veis
+````{r }
+skimr::skim(dt)
+````
+
+ Verificando os valores missing de forma visual
+ 
+````{r}
+is.na(dt)
+````
+
+## Análise descritiva 
+
+ Filtrando somente Nordeste
+````{r}
+df_NE <- dt %>% filter(Nome_Regiao == "Nordeste")
+df_BA <- dt %>% filter(Nome_UF == "Bahia")
+````
+
+ Verificando algumas estatásticas descritivas
+
+- População homens:
+````{r}
+base::summary(dt %>% select(Populacao_Homens))
+````
+- População mulheres:
+````{r}
+base::summary(dt %>% select(Populacao_Mulheres))
+````
+- Obitos:
+````{r}
+base::summary(dt %>% select(Obitos))
+````
+- Nascimentos:
+````{r}
+base::summary(dt %>% select(Nascimentos))
+````
+- EVN Homens:
+````{r}
+base::summary(dt %>% select(EVN_Homens))
+````
+- EVN Mulheres:
+````{r}
+base::summary(dt %>% select(EVN_Mulheres))
+````
+
+## Estatisticas descritivas usando o dplyr estratificado por Sigla_UF --> obito
+````{r, echo = FALSE }
+dt %>%
+  dplyr::group_by(Sigla_UF) %>%
+  dplyr::summarise(
+    min = min(Obitos, na.rm = TRUE),
+    p5 = quantile(Obitos, 0.05, na.rm = TRUE ),
+    q1 = quantile(Obitos, 0.25, na.rm = TRUE ),
+    md = quantile(Obitos, 0.50, na.rm = TRUE ),
+    q3 = quantile(Obitos, 0.75, na.rm = TRUE ),
+    p95 = quantile(Obitos, 0.95, na.rm = TRUE ),
+    max = max(Obitos, na.rm = TRUE ),
+    media = mean(Obitos, na.rm = TRUE ),
+    desvio_padrao = sd(Obitos, na.rm = TRUE ),
+    cv = sd(Obitos, na.rm = TRUE )/mean(Obitos, na.rm = TRUE )*100,
+    soma = sum(Obitos, na.rm = TRUE ),
+    contagem = n()
+  )
+````
+
+# Estatísticas descritivas usando o dplyr estratificado por unidade da federação --> Nascimentos
+````{r, echo = FALSE}
+dt %>%
+  dplyr::group_by(Sigla_UF) %>%
+  dplyr::summarise(
+    min = min(Nascimentos, na.rm = TRUE),
+    p5 = quantile(Nascimentos, 0.05, na.rm = TRUE ),
+    q1 = quantile(Nascimentos, 0.25, na.rm = TRUE ),
+    md = quantile(Nascimentos, 0.50, na.rm = TRUE ),
+    q3 = quantile(Nascimentos, 0.75, na.rm = TRUE ),
+    p95 = quantile(Nascimentos, 0.95, na.rm = TRUE ),
+    max = max(Nascimentos, na.rm = TRUE ),
+    media = mean(Nascimentos, na.rm = TRUE ),
+    desvio_padrao = sd(Nascimentos, na.rm = TRUE ),
+    cv = sd(Nascimentos, na.rm = TRUE )/mean(Nascimentos, na.rm = TRUE )*100,
+    soma = sum(Nascimentos, na.rm = TRUE ),
+    contagem = n()
+  ) %>%
+  as.data.frame()
+````
+
+## Análise descritiva estratifica com o pacote psych
+````{r}
+psych::describeBy(
+  x =dt$Nascimento,
+  group = dt$Sigla_UF
+)
+````
+
+## Fazendo Gráficos para variáveis quantitativas contínuas
+gráfico 1 - Nascimentos:
+````{r, echo = FALSE}
+hist(dt$Nascimentos)
+````
+gráfico 2 - Nascimentos:
+````{r, echo = FALSE}
+boxplot(dt$Nascimentos)
+````
+gráfico 1 - Obitos:
+````{r, echo = FALSE}
+hist(dt$Obitos)
+````
+gráfico 2 - Obitos:
+````{r, echo = FALSE}
+boxplot(dt$Obitos)
+````
+
+## Boxplot da Taxa de Fecundidade de 15 a 19 anos por Sigla_UF
+````{r, echo = FALSE}
+grafico_txfecg1519 <- dt %>%
+  dplyr:: filter(Sigla_UF != 'BR')
+ggplot2::ggplot(data = grafico_txfecg1519)+  
+  ggplot2::aes(x = Sigla_UF, y = TEF_15_19, fill = Nome_Regiao)+
+  ggplot2::geom_boxplot()+
+  ggplot2::labs(
+    x = 'Região em UF',
+    y = 'Taxa de fecundidade de 15 a 19 anos',
+    fill = 'Nome da regiÃ£o'
+  )+
+  ggplot2::theme(legend.position = 'none')
+````
+
+## Boxplot ìndice de Envelhecimento por Unidade da Federação
+````{r}
+ggplot2::ggplot(data = dt)+  
+  ggplot2::aes(x = Sigla_UF, y = Indice_Envelhecimento, fill = Sigla_UF)+
+  ggplot2::geom_boxplot()+
+  ggplot2::labs(
+    x = 'Unidade da Federação',
+    y = 'Indice de Envelhecimento'
+  )+
+  ggplot2::theme(legend.position = 'none')
+````
+
+#MAPA
+
+Carregando banco de dados
+````{r}
+mapa <- rgdal::readOGR(
+  dsn = "https://raw.githubusercontent.com/jonates/opendata/master/arquivos_geoespaciais/unidades_da_federacao.json",
+  use_iconv = T
+)
+mapa@data
+````
+
+Transformando tipo da variável
+````{r}
+mapa@data$CD_GEOCUF<-as.integer(mapa@data$CD_GEOCUF)
+````
+Visualizar
+````{r}
+dplyr::glimpse(mapa@data)
+mapa@data
+````
+Renomeando variável
+````{r}
+dt<-dplyr:: rename(dt, CD_GEOCUF = Codigo_UF)
+````
+Filtrando a base de dados pelo ano de 2025 e tirando o 'Todas' do Nome_UF
+````{r}
+dt %>%
+  dplyr::filter(Ano == 2025 & Nome_UF != "Todas")->dt
+````
+
+Unindo banco
+````{r}
+mapa@data <- dplyr::left_join(
+  x = mapa@data,
+  y = dt,
+  by = "CD_GEOCUF"
+)
+
+mapa@data%>%
+  mutate(UF= case_when(
+    CD_GEOCUF== 11 ~ "Rondônia (RO)",
+    CD_GEOCUF== 12 ~ "Acre (AC)",
+    CD_GEOCUF== 13 ~ "Amazonas (AM)",
+    CD_GEOCUF== 14 ~ "Roraima (RR)",
+    CD_GEOCUF== 15 ~ "Pará (PA)",
+    CD_GEOCUF== 16 ~ "Amapá (AP)",
+    CD_GEOCUF== 17 ~ "Tocantins (TO)",
+    CD_GEOCUF== 21 ~ "Maranhão (MA)",
+    CD_GEOCUF== 22 ~ "Piauí (PI)",
+    CD_GEOCUF== 23 ~ "Ceará (CE)",
+    CD_GEOCUF== 24 ~ "Rio Grande do Norte (RN)",
+    CD_GEOCUF== 25 ~ "Paraíba (PB)",
+    CD_GEOCUF== 26 ~ "Pernambuco (PE)",
+    CD_GEOCUF== 27 ~ "Alagoas (AL)",
+    CD_GEOCUF== 28 ~ "Sergipe (SE)",
+    CD_GEOCUF== 29 ~ "Bahia (BA)",
+    CD_GEOCUF== 31 ~ "Minas Gerais (MG)",
+    CD_GEOCUF== 32 ~ "Espírito Santo (ES)",
+    CD_GEOCUF== 33 ~ "Rio de Janeiro (RJ)",
+    CD_GEOCUF== 35 ~ "São Paulo (SP)",
+    CD_GEOCUF== 41 ~ "Paraná (PR)",
+    CD_GEOCUF== 42 ~ "Santa Catarina (SC)",
+    CD_GEOCUF== 43 ~ "Rio Grande do Sul (RS)",
+    CD_GEOCUF== 50 ~ "Mato Grosso do Sul (MS)",
+    CD_GEOCUF== 51 ~ "Mato Grosso (MT)",
+    CD_GEOCUF== 52 ~ "Goiás (GO)",
+    CD_GEOCUF== 53 ~ "Distrito Federal (DF)"
+  )) ->mapa@data
+````
+##Paleta de cores do mapa 
+````{r}
+library(viridis)           
+viridis(27)-> cores_27
+````
+Criando a paleta de cores do mapa
+````{r}
+paleta_regioes_pesquisas <- leaflet::colorFactor(
+  palette = cores_27,
+  domain = factor(
+    x = mapa$Populacao_Total,
+    levels= (mapa$Populacao_Total)
+  ))
+````
+
+Formatando a variável 'mapa@data$Populaçao_Total' em milhar
+````{undefined message=TRUE, warning=FALSE}
+mapa@data$Populacao_Total <- format(mapa@data$Populacao_Total, big.mark = ".", decimal.mark = ",")
+````
+
+## O mapa de distribuiçao da população por UF
+````{r, echo = FALSE}
+leaflet(
+  data = mapa,
+  options = leafletOptions (
+    zoomControl = TRUE,
+    minZoom = 1.0, maxZoom = 20.5,
+    dragging = TRUE,
+    doubleClickZoom = TRUE
+  )
+) %>%
+  addTiles()%>%
+
+  setView(lat = -10.64935694548079, lng = -50.52766173393505, zoom = 2.5)%>%
+  # setView(lat = -13.166149, lng = -41.559343, zoom = 6.0) %>% #Bahia
+  addPolygons(
+    stroke = T,
+    opacity = 1,
+    color = "black",
+    weight = 0.5,
+    smoothFactor = 0.0,
+    fillOpacity = 1,
+    label = lapply(paste0(" ", mapa$UF,"<br>","<b>População: ",mapa$Populacao_Total), htmltools::HTML),
+    
+    #               html('', UF, "|População =",
+    # <br>,<b>,
+    # Populacao_Total</b>),
+    
+    fillColor = ~paleta_regioes_pesquisas(Populacao_Total),
+    highlight = highlightOptions(
+      weight = 2,
+      color = "black",
+      fillOpacity = 1,
+      bringToFront = TRUE),
+    layerId = ~CD_GEOCUF
+  )%>%
+  addLegend(
+    position = "bottomleft",
+    opacity = 1,
+    title= "Distribuição da População por UF",
+    pal = paleta_regioes_pesquisas,
+    values = levels(mapa@data$Populacao_Total)
+  )->mapa_1
+mapa_1
+````
+
+Dados do mapa
+````{r}
+dplyr::glimpse(mapa@data)
+````
+````{r}
+class(mapa_1)
+````
+
